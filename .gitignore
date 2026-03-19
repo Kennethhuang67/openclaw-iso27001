@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.js.map
+*.d.ts
+!bin/iso27001.js
+!jest.config.js
+.DS_Store
+iso27001-report-*.md
+iso27001-report-*.json

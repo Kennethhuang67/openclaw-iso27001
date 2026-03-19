@@ -1,0 +1,79 @@
+name: Daily Security Scan
+
+on:
+  schedule:
+    # Run daily at 06:00 UTC (14:00 Taipei)
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run security scan
+        run: |
+          node bin/iso27001.js scan --json > scan-results.json
+          node bin/iso27001.js scan > scan-report.md
+
+      - name: Check for high-risk findings
+        id: check
+        run: |
+          HIGH_COUNT=$(node -e "const r=require('./scan-results.json'); const high=r.findings.filter(f=>f.severity==='high').length; console.log(high)")
+          echo "high_count=$HIGH_COUNT" >> $GITHUB_OUTPUT
+          if [ "$HIGH_COUNT" -gt 0 ]; then
+            echo "has_high=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_high=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create issue if high-risk findings
+        if: steps.check.outputs.has_high == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('scan-report.md', 'utf8');
+            const highCount = '${{ steps.check.outputs.high_count }}';
+            const date = new Date().toISOString().split('T')[0];
+
+            // Check if open issue already exists
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'automated-scan',
+              per_page: 5
+            });
+
+            if (issues.data.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `🚨 Security Scan: ${highCount} high-risk findings (${date})`,
+                body: `## Automated Security Scan Report\n\n${report}\n\n---\n*This issue was created automatically by the daily security scan workflow.*`,
+                labels: ['automated-scan', 'security']
+              });
+            }
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-scan-${{ github.run_number }}
+          path: |
+            scan-results.json
+            scan-report.md
+          retention-days: 90

@@ -195,4 +195,4 @@ See [docs/ISO-CLAUSE-MAPPING.md](docs/ISO-CLAUSE-MAPPING.md) for the complete ma
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Apache 2.0 — see [LICENSE](LICENSE).

@@ -33,32 +33,33 @@ jobs:
 
       - name: Run security scan
         run: |
-          node bin/iso27001.js scan --json | grep -v '^\s' | python3 -c "import sys,json; [print(json.dumps(json.loads(l))) for l in sys.stdin if l.strip().startswith('{')]" > scan-results.json || true
-          if [ ! -s scan-results.json ] || ! python3 -c "import json; json.load(open('scan-results.json'))" 2>/dev/null; then
-            node bin/iso27001.js scan --json > /tmp/raw-scan.txt 2>&1
-            python3 -c "
-import re, json
-text = open('/tmp/raw-scan.txt').read()
-match = re.search(r'\{[\s\S]*\}', text)
-if match:
-    obj = json.loads(match.group())
-    json.dump(obj, open('scan-results.json','w'), indent=2)
-else:
-    json.dump({'findings':[],'summary':{'high':0}}, open('scan-results.json','w'))
-"
-          fi
+          node bin/iso27001.js scan --json > /tmp/raw-scan.txt 2>&1 || true
+          python3 - <<'PYEOF'
+          import re, json, sys
+          text = open("/tmp/raw-scan.txt").read()
+          match = re.search(r"\{[\s\S]*\}", text)
+          if match:
+              try:
+                  obj = json.loads(match.group())
+                  json.dump(obj, open("scan-results.json", "w"), indent=2)
+                  sys.exit(0)
+              except json.JSONDecodeError:
+                  pass
+          json.dump({"findings": [], "summary": {"high": 0}}, open("scan-results.json", "w"))
+          PYEOF
           node bin/iso27001.js scan > scan-report.md 2>&1 || true
 
       - name: Check for high-risk findings
         id: check
         run: |
-          HIGH_COUNT=$(python3 -c "import json; r=json.load(open('scan-results.json')); print(len([f for f in r.get('findings',[]) if f.get('severity','') == 'high' or f.get('risk','') == 'high']))")
-          echo "high_count=$HIGH_COUNT" >> $GITHUB_OUTPUT
-          if [ "$HIGH_COUNT" -gt 0 ]; then
-            echo "has_high=true" >> $GITHUB_OUTPUT
-          else
-            echo "has_high=false" >> $GITHUB_OUTPUT
-          fi
+          python3 - <<'PYEOF' >> "$GITHUB_OUTPUT"
+          import json
+          r = json.load(open("scan-results.json"))
+          findings = r.get("findings", [])
+          high = len([f for f in findings if f.get("severity") == "high" or f.get("risk") == "high"])
+          print(f"high_count={high}")
+          print(f"has_high={'true' if high > 0 else 'false'}")
+          PYEOF
 
       - name: Create issue if high-risk findings
         if: steps.check.outputs.has_high == 'true'

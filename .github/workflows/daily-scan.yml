@@ -5,6 +5,10 @@ on:
     # Run daily at 06:00 UTC (14:00 Taipei)
     - cron: '0 6 * * *'
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/daily-scan.yml'
 
 jobs:
   scan:

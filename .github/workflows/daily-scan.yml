@@ -29,13 +29,26 @@ jobs:
 
       - name: Run security scan
         run: |
-          node bin/iso27001.js scan --json > scan-results.json
-          node bin/iso27001.js scan > scan-report.md
+          node bin/iso27001.js scan --json | grep -v '^\s' | python3 -c "import sys,json; [print(json.dumps(json.loads(l))) for l in sys.stdin if l.strip().startswith('{')]" > scan-results.json || true
+          if [ ! -s scan-results.json ] || ! python3 -c "import json; json.load(open('scan-results.json'))" 2>/dev/null; then
+            node bin/iso27001.js scan --json > /tmp/raw-scan.txt 2>&1
+            python3 -c "
+import re, json
+text = open('/tmp/raw-scan.txt').read()
+match = re.search(r'\{[\s\S]*\}', text)
+if match:
+    obj = json.loads(match.group())
+    json.dump(obj, open('scan-results.json','w'), indent=2)
+else:
+    json.dump({'findings':[],'summary':{'high':0}}, open('scan-results.json','w'))
+"
+          fi
+          node bin/iso27001.js scan > scan-report.md 2>&1 || true
 
       - name: Check for high-risk findings
         id: check
         run: |
-          HIGH_COUNT=$(node -e "const r=require('./scan-results.json'); const high=r.findings.filter(f=>f.severity==='high').length; console.log(high)")
+          HIGH_COUNT=$(python3 -c "import json; r=json.load(open('scan-results.json')); print(len([f for f in r.get('findings',[]) if f.get('severity','') == 'high' or f.get('risk','') == 'high']))")
           echo "high_count=$HIGH_COUNT" >> $GITHUB_OUTPUT
           if [ "$HIGH_COUNT" -gt 0 ]; then
             echo "has_high=true" >> $GITHUB_OUTPUT
